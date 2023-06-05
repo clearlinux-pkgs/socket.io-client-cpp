@@ -5,7 +5,7 @@
 #
 Name     : socket.io-client-cpp
 Version  : 3.1.0
-Release  : 1
+Release  : 2
 URL      : https://github.com/socketio/socket.io-client-cpp/archive/3.1.0/socket.io-client-cpp-3.1.0.tar.gz
 Source0  : https://github.com/socketio/socket.io-client-cpp/archive/3.1.0/socket.io-client-cpp-3.1.0.tar.gz
 Summary  : No detailed summary available
@@ -21,6 +21,7 @@ BuildRequires : websocketpp-dev
 # Suppress stripping binaries
 %define __strip /bin/true
 %define debug_package %{nil}
+Patch1: backport-feat-send-auth-object-upon-connecting.patch
 
 %description
 # Socket.IO C++ Client
@@ -57,13 +58,14 @@ license components for the socket.io-client-cpp package.
 %prep
 %setup -q -n socket.io-client-cpp-3.1.0
 cd %{_builddir}/socket.io-client-cpp-3.1.0
+%patch -P 1 -p1
 
 %build
 export http_proxy=http://127.0.0.1:9/
 export https_proxy=http://127.0.0.1:9/
 export no_proxy=localhost,127.0.0.1,0.0.0.0
 export LANG=C.UTF-8
-export SOURCE_DATE_EPOCH=1685751029
+export SOURCE_DATE_EPOCH=1685980179
 mkdir -p clr-build
 pushd clr-build
 export GCC_IGNORE_WERROR=1
@@ -79,7 +81,7 @@ make  %{?_smp_mflags}
 popd
 
 %install
-export SOURCE_DATE_EPOCH=1685751029
+export SOURCE_DATE_EPOCH=1685980179
 rm -rf %{buildroot}
 mkdir -p %{buildroot}/usr/share/package-licenses/socket.io-client-cpp
 cp %{_builddir}/socket.io-client-cpp-%{version}/LICENSE %{buildroot}/usr/share/package-licenses/socket.io-client-cpp/b3cb313c85da9e7d8160dacca03f253c97c7dcb8 || :

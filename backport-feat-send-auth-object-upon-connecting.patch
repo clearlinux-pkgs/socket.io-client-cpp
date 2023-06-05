@@ -1,0 +1,209 @@
+From 23f243ff555aa86193aa673d616ba6cca7899256 Mon Sep 17 00:00:00 2001
+From: Gabriel Jablonski <gabriel.g.jablonski@gmail.com>
+Date: Tue, 23 Nov 2021 19:44:34 -0300
+Subject: [PATCH] feat: send auth object upon connecting (#335)
+
+Usage:
+
+```c++
+sio::client client;
+
+sio::message::ptr auth = sio::object_message::create();
+auth->get_map()["token"] = sio::string_message::create("eyJhbGciOiJIUzI1NiIsInR...");
+auth->get_map()["sessionId"] = sio::string_message::create("p0ZoB1FwH6");
+
+client.connect(server_url, auth);
+```
+---
+ src/internal/sio_client_impl.cpp |  5 +++--
+ src/internal/sio_client_impl.h   |  3 ++-
+ src/sio_client.cpp               | 22 +++++++++++++++++++---
+ src/sio_client.h                 |  7 +++++++
+ src/sio_socket.cpp               | 14 ++++++++------
+ src/sio_socket.h                 |  2 +-
+ 6 files changed, 40 insertions(+), 13 deletions(-)
+
+diff --git a/src/internal/sio_client_impl.cpp b/src/internal/sio_client_impl.cpp
+index 53cfe539..fa948f4c 100644
+--- a/src/internal/sio_client_impl.cpp
++++ b/src/internal/sio_client_impl.cpp
+@@ -70,7 +70,7 @@ namespace sio
+         sync_close();
+     }
+     
+-    void client_impl::connect(const string& uri, const map<string,string>& query, const map<string, string>& headers)
++    void client_impl::connect(const string& uri, const map<string,string>& query, const map<string, string>& headers, const message::ptr& auth)
+     {
+         if(m_reconn_timer)
+         {
+@@ -108,6 +108,7 @@ namespace sio
+         m_query_string=move(query_str);
+ 
+         m_http_headers = headers;
++        m_auth = auth;
+ 
+         this->reset_states();
+         m_client.get_io_service().dispatch(std::bind(&client_impl::connect_impl,this,uri,m_query_string));
+@@ -140,7 +141,7 @@ namespace sio
+         }
+         else
+         {
+-            pair<const string, socket::ptr> p(aux,shared_ptr<sio::socket>(new sio::socket(this,aux)));
++            pair<const string, socket::ptr> p(aux,shared_ptr<sio::socket>(new sio::socket(this,aux,m_auth)));
+             return (m_sockets.insert(p).first)->second;
+         }
+     }
+diff --git a/src/internal/sio_client_impl.h b/src/internal/sio_client_impl.h
+index 34db1869..856622ab 100644
+--- a/src/internal/sio_client_impl.h
++++ b/src/internal/sio_client_impl.h
+@@ -104,7 +104,7 @@ namespace sio
+         
+         // Client Functions - such as send, etc.
+         void connect(const std::string& uri, const std::map<std::string, std::string>& queryString,
+-                     const std::map<std::string, std::string>& httpExtraHeaders);
++                     const std::map<std::string, std::string>& httpExtraHeaders, const message::ptr& auth);
+         
+         sio::socket::ptr const& socket(const std::string& nsp);
+         
+@@ -199,6 +199,7 @@ namespace sio
+         std::string m_base_url;
+         std::string m_query_string;
+         std::map<std::string, std::string> m_http_headers;
++        message::ptr m_auth;
+ 
+         unsigned int m_ping_interval;
+         unsigned int m_ping_timeout;
+diff --git a/src/sio_client.cpp b/src/sio_client.cpp
+index b475e6f7..95054780 100644
+--- a/src/sio_client.cpp
++++ b/src/sio_client.cpp
+@@ -69,18 +69,34 @@ namespace sio
+ 
+     void client::connect(const std::string& uri)
+     {
+-        m_impl->connect(uri, {}, {});
++        m_impl->connect(uri, {}, {}, {});
++    }
++
++    void client::connect(const std::string& uri, const message::ptr& auth)
++    {
++        m_impl->connect(uri, {}, {}, auth);
+     }
+ 
+     void client::connect(const std::string& uri, const std::map<string,string>& query)
+     {
+-        m_impl->connect(uri, query, {});
++        m_impl->connect(uri, query, {}, {});
++    }
++
++    void client::connect(const std::string& uri, const std::map<string,string>& query, const message::ptr& auth)
++    {
++        m_impl->connect(uri, query, {}, auth);
+     }
+ 
+     void client::connect(const std::string& uri, const std::map<std::string,std::string>& query,
+                          const std::map<std::string,std::string>& http_extra_headers)
+     {
+-        m_impl->connect(uri, query, http_extra_headers);
++        m_impl->connect(uri, query, http_extra_headers, {});
++    }
++
++    void client::connect(const std::string& uri, const std::map<std::string,std::string>& query,
++                         const std::map<std::string,std::string>& http_extra_headers, const message::ptr& auth)
++    {
++        m_impl->connect(uri, query, http_extra_headers, auth);
+     }
+     
+     socket::ptr const& client::socket(const std::string& nsp)
+diff --git a/src/sio_client.h b/src/sio_client.h
+index c37882ab..7b6f1f89 100644
+--- a/src/sio_client.h
++++ b/src/sio_client.h
+@@ -56,11 +56,18 @@ namespace sio
+         // Client Functions - such as send, etc.
+         void connect(const std::string& uri);
+ 
++        void connect(const std::string& uri, const message::ptr& auth);
++
+         void connect(const std::string& uri, const std::map<std::string,std::string>& query);
+ 
++        void connect(const std::string& uri, const std::map<std::string,std::string>& query, const message::ptr& auth);
++
+         void connect(const std::string& uri, const std::map<std::string,std::string>& query,
+                      const std::map<std::string,std::string>& http_extra_headers);
+ 
++        void connect(const std::string& uri, const std::map<std::string,std::string>& query,
++                     const std::map<std::string,std::string>& http_extra_headers, const message::ptr& auth);
++
+         void set_reconnect_attempts(int attempts);
+ 
+         void set_reconnect_delay(unsigned millis);
+diff --git a/src/sio_socket.cpp b/src/sio_socket.cpp
+index e15ba83b..34be59bf 100644
+--- a/src/sio_socket.cpp
++++ b/src/sio_socket.cpp
+@@ -108,7 +108,7 @@ namespace sio
+     {
+     public:
+         
+-        impl(client_impl *,std::string const&);
++        impl(client_impl *, std::string const&, message::ptr const&);
+         ~impl();
+         
+         void on(std::string const& event_name,event_listener_aux const& func);
+@@ -173,6 +173,7 @@ namespace sio
+         
+         bool m_connected;
+         std::string m_nsp;
++        message::ptr m_auth;
+         
+         std::map<unsigned int, std::function<void (message::list const&)> > m_acks;
+         
+@@ -228,10 +229,11 @@ namespace sio
+         m_error_listener = nullptr;
+     }
+     
+-    socket::impl::impl(client_impl *client,std::string const& nsp):
++    socket::impl::impl(client_impl *client, std::string const& nsp, message::ptr const& auth):
+         m_client(client),
+         m_connected(false),
+-        m_nsp(nsp)
++        m_nsp(nsp),
++        m_auth(auth)
+     {
+         NULL_GUARD(client);
+         if(m_client->opened())
+@@ -269,7 +271,7 @@ namespace sio
+     void socket::impl::send_connect()
+     {
+         NULL_GUARD(m_client);
+-        packet p(packet::type_connect,m_nsp);
++        packet p(packet::type_connect, m_nsp, m_auth);
+         m_client->send(p);
+         m_connection_timer.reset(new asio::steady_timer(m_client->get_io_service()));
+         asio::error_code ec;
+@@ -523,8 +525,8 @@ namespace sio
+         return socket::event_listener();
+     }
+     
+-    socket::socket(client_impl* client,std::string const& nsp):
+-        m_impl(new impl(client,nsp))
++    socket::socket(client_impl* client,std::string const& nsp,message::ptr const& auth):
++        m_impl(new impl(client,nsp,auth))
+     {
+     }
+     
+diff --git a/src/sio_socket.h b/src/sio_socket.h
+index 69ef1f47..bf760340 100644
+--- a/src/sio_socket.h
++++ b/src/sio_socket.h
+@@ -75,7 +75,7 @@ namespace sio
+         std::string const& get_namespace() const;
+         
+     protected:
+-        socket(client_impl*,std::string const&);
++        socket(client_impl*,std::string const&,message::ptr const&);
+ 
+         void on_connected();
+         
